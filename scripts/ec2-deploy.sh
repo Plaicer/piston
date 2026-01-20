@@ -109,11 +109,11 @@ sudo docker run -d \
     $IMAGE
 
 # Wait for container to be ready
-log_info "Waiting for Piston API to be ready..."
+log_info "Waiting for Piston API to be ready (via host curl)..."
 max_attempts=30
 attempt=0
 while [ $attempt -lt $max_attempts ]; do
-    if sudo docker exec piston_api curl -s http://localhost:2000/api/v2/runtimes > /dev/null 2>&1; then
+    if curl -fsS http://localhost:2000/api/v2/runtimes > /dev/null 2>&1; then
         log_info "✅ Piston API is ready!"
         break
     fi
@@ -125,7 +125,7 @@ done
 if [ $attempt -eq $max_attempts ]; then
     log_error "Piston API did not start within expected time"
     log_info "Container logs:"
-    sudo docker logs piston_api | tail -20
+    sudo docker logs piston_api | tail -40
     exit 1
 fi
 
