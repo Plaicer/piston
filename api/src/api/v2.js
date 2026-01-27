@@ -7,7 +7,10 @@ const runtime = require('../runtime');
 const { Job } = require('../job');
 const package = require('../package');
 const globals = require('../globals');
+const config = require('../config');
 const logger = require('logplease').create('api/v2');
+const callParser = require('../call-parser');
+const { generateTestRunner } = require('../generators');
 
 function get_job(body) {
     let {
@@ -260,6 +263,238 @@ router.post('/execute', async (req, res) => {
         } catch (error) {
             logger.error(`Error cleaning up job: ${job.uuid}:\n${error}`);
             return res.status(500).send(); // On error, this replaces the return in the outer try-catch
+        }
+    }
+});
+
+/**
+ * Validate test cases for the testCompile endpoint
+ */
+function validate_test_cases(test_cases) {
+    if (!test_cases || !Array.isArray(test_cases)) {
+        throw { message: 'test_cases is required as an array' };
+    }
+
+    if (test_cases.length === 0) {
+        throw { message: 'test_cases must be a non-empty array' };
+    }
+
+    if (config.max_test_cases > 0 && test_cases.length > config.max_test_cases) {
+        throw {
+            message: `test_cases cannot exceed ${config.max_test_cases} items`,
+        };
+    }
+
+    for (const [i, tc] of test_cases.entries()) {
+        if (typeof tc.call !== 'string') {
+            throw { message: `test_cases[${i}].call must be a string` };
+        }
+
+        if (tc.call.trim() === '') {
+            throw { message: `test_cases[${i}].call cannot be empty` };
+        }
+
+        if (!('expected' in tc)) {
+            throw { message: `test_cases[${i}].expected is required` };
+        }
+
+        // Validate call expression is parseable
+        try {
+            callParser.parseCallExpression(tc.call);
+        } catch (e) {
+            throw {
+                message: `test_cases[${i}].call is invalid: ${e.message}`,
+            };
+        }
+    }
+
+    return test_cases;
+}
+
+/**
+ * POST /api/v2/testCompile
+ *
+ * Run code against multiple test cases and return results
+ *
+ * Request body:
+ * {
+ *   language: string,
+ *   version: string,
+ *   files: [{name: string, content: string}],
+ *   test_cases: [{call: string, expected: any}],
+ *   run_timeout?: number,
+ *   run_memory_limit?: number,
+ *   compile_timeout?: number,
+ *   compile_memory_limit?: number
+ * }
+ *
+ * Response:
+ * {
+ *   language: string,
+ *   version: string,
+ *   compile: object | null,
+ *   test_results: [{index, call, expected, actual, passed, error, execution}],
+ *   summary: {total, passed, failed},
+ *   full_output: {stdout, stderr}
+ * }
+ */
+router.post('/testCompile', async (req, res) => {
+    let job;
+    let testCases;
+    let runnerResult;
+
+    try {
+        // Validate test cases
+        testCases = validate_test_cases(req.body.test_cases);
+
+        // Generate test runner files for the language
+        runnerResult = generateTestRunner(
+            req.body.language,
+            req.body.files,
+            testCases,
+            callParser
+        );
+
+        // Create job with runner files
+        job = await get_job({
+            ...req.body,
+            files: runnerResult.files,
+            stdin: runnerResult.stdin || ''
+        });
+    } catch (error) {
+        return res.status(400).json(error);
+    }
+
+    try {
+        const box = await job.prime();
+        const execResult = await job.execute(box);
+
+        // Handle compilation failure
+        if (execResult.compile && execResult.compile.code !== 0) {
+            return res.status(200).send({
+                language: job.runtime.language,
+                version: job.runtime.version.raw,
+                compile: execResult.compile,
+                test_results: [],
+                summary: {
+                    total: testCases.length,
+                    passed: 0,
+                    failed: 0,
+                    error: 'compilation_failed',
+                },
+                full_output: {
+                    stdout: execResult.compile.stdout || '',
+                    stderr: execResult.compile.stderr || '',
+                },
+            });
+        }
+
+        // Parse test results from stdout
+        let testResults = [];
+        let parseError = null;
+
+        // Check if this is a fallback mode (unsupported language)
+        if (runnerResult.mode === 'fallback') {
+            // For fallback mode, return a single result based on execution
+            testResults = testCases.map((tc, i) => ({
+                index: i,
+                call: tc.call,
+                expected: tc.expected,
+                actual: null,
+                passed: false,
+                error: `Language '${req.body.language}' requires fallback mode. Please check the output manually.`,
+                execution: {
+                    stdout: execResult.run?.stdout || '',
+                    stderr: execResult.run?.stderr || '',
+                    code: execResult.run?.code,
+                    signal: execResult.run?.signal,
+                    memory: execResult.run?.memory,
+                    cpu_time: execResult.run?.cpu_time,
+                    wall_time: execResult.run?.wall_time,
+                },
+            }));
+        } else {
+            try {
+                const stdout = execResult.run?.stdout || '';
+                const trimmedOutput = stdout.trim();
+
+                if (!trimmedOutput) {
+                    throw new Error('Empty output from test runner');
+                }
+
+                const output = JSON.parse(trimmedOutput);
+
+                if (!Array.isArray(output)) {
+                    throw new Error('Test runner output is not an array');
+                }
+
+                testResults = output.map((r, i) => ({
+                    index: r.index ?? i,
+                    call: testCases[i]?.call || '',
+                    expected: testCases[i]?.expected,
+                    actual: r.actual,
+                    passed: r.passed === true,
+                    error: r.error || null,
+                    execution: {
+                        code: execResult.run?.code,
+                        signal: execResult.run?.signal,
+                        memory: execResult.run?.memory,
+                        cpu_time: execResult.run?.cpu_time,
+                        wall_time: execResult.run?.wall_time,
+                    },
+                }));
+            } catch (e) {
+                parseError = `Output parse error: ${e.message}`;
+                logger.warn(`Failed to parse test results: ${e.message}`);
+                logger.debug(`Raw output: ${execResult.run?.stdout}`);
+
+                // If parsing fails, all tests are considered failed
+                testResults = testCases.map((tc, i) => ({
+                    index: i,
+                    call: tc.call,
+                    expected: tc.expected,
+                    actual: null,
+                    passed: false,
+                    error: parseError,
+                    execution: {
+                        stdout: execResult.run?.stdout || '',
+                        stderr: execResult.run?.stderr || '',
+                        code: execResult.run?.code,
+                        signal: execResult.run?.signal,
+                    },
+                }));
+            }
+        }
+
+        const passedCount = testResults.filter(r => r.passed).length;
+
+        return res.status(200).send({
+            language: job.runtime.language,
+            version: job.runtime.version.raw,
+            compile: execResult.compile || null,
+            test_results: testResults,
+            summary: {
+                total: testCases.length,
+                passed: passedCount,
+                failed: testCases.length - passedCount,
+            },
+            full_output: {
+                stdout: execResult.run?.stdout || '',
+                stderr: execResult.run?.stderr || '',
+            },
+        });
+    } catch (error) {
+        logger.error(`Error executing test job: ${job?.uuid}:\n${error}`);
+        return res.status(500).send({
+            message: 'Internal server error during test execution',
+        });
+    } finally {
+        try {
+            if (job) {
+                await job.cleanup();
+            }
+        } catch (error) {
+            logger.error(`Error cleaning up test job: ${job?.uuid}:\n${error}`);
         }
     }
 });

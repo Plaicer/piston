@@ -1,0 +1,128 @@
+const PythonGenerator = require('./python');
+const JavaScriptGenerator = require('./javascript');
+const JavaGenerator = require('./java');
+const CppGenerator = require('./cpp');
+const CSharpGenerator = require('./csharp');
+const GoGenerator = require('./go');
+const RubyGenerator = require('./ruby');
+const GenericGenerator = require('./generic');
+
+/**
+ * Registry of language-specific generators
+ */
+const generators = {
+    // Python family
+    python: new PythonGenerator(),
+    python2: new PythonGenerator(),
+    python3: new PythonGenerator(),
+    'python3.10': new PythonGenerator(),
+    'python3.11': new PythonGenerator(),
+    'python3.12': new PythonGenerator(),
+
+    // JavaScript/Node family
+    javascript: new JavaScriptGenerator(),
+    node: new JavaScriptGenerator(),
+    nodejs: new JavaScriptGenerator(),
+    'node-javascript': new JavaScriptGenerator(),
+
+    // TypeScript (uses JS runner since it compiles to JS)
+    typescript: new JavaScriptGenerator(),
+    ts: new JavaScriptGenerator(),
+
+    // Java family
+    java: new JavaGenerator(),
+
+    // C++ family
+    cpp: new CppGenerator(),
+    'c++': new CppGenerator(),
+    'cpp17': new CppGenerator(),
+    'cpp20': new CppGenerator(),
+
+    // C# family
+    csharp: new CSharpGenerator(),
+    'c#': new CSharpGenerator(),
+    cs: new CSharpGenerator(),
+    dotnet: new CSharpGenerator(),
+
+    // Go family
+    go: new GoGenerator(),
+    golang: new GoGenerator(),
+
+    // Ruby family
+    ruby: new RubyGenerator(),
+
+    // PHP (can use eval-based approach similar to Python)
+    // php: new PhpGenerator(),
+
+    // Perl (can use eval-based approach)
+    // perl: new PerlGenerator(),
+
+    // Lua (can use loadstring-based approach)
+    // lua: new LuaGenerator(),
+};
+
+/**
+ * Get a generator for the specified language
+ * Falls back to GenericGenerator for unsupported languages
+ */
+function getGenerator(language) {
+    const lang = language.toLowerCase().replace(/[^a-z0-9+#]/g, '');
+    return generators[lang] || new GenericGenerator(language);
+}
+
+/**
+ * Generate test runner files for the specified language
+ *
+ * @param {string} language - The programming language
+ * @param {Array} userFiles - Array of {name, content} objects
+ * @param {Array} testCases - Array of test cases
+ * @param {Object} callParser - The call expression parser
+ * @returns {Object} - { files, entryPoint, stdin, mode? }
+ */
+function generateTestRunner(language, userFiles, testCases, callParser) {
+    // Parse all call expressions
+    const parsedTestCases = testCases.map((tc, index) => {
+        try {
+            return {
+                ...tc,
+                parsed: callParser.parseCallExpression(tc.call)
+            };
+        } catch (error) {
+            throw new Error(`Failed to parse test_cases[${index}].call: ${error.message}`);
+        }
+    });
+
+    const generator = getGenerator(language);
+    return generator.generateRunner(userFiles, parsedTestCases);
+}
+
+/**
+ * Check if a language has native (non-fallback) support
+ */
+function hasNativeSupport(language) {
+    const lang = language.toLowerCase().replace(/[^a-z0-9+#]/g, '');
+    return lang in generators;
+}
+
+/**
+ * Get list of all supported languages
+ */
+function getSupportedLanguages() {
+    return Object.keys(generators);
+}
+
+module.exports = {
+    getGenerator,
+    generateTestRunner,
+    hasNativeSupport,
+    getSupportedLanguages,
+    // Export individual generators for testing
+    PythonGenerator,
+    JavaScriptGenerator,
+    JavaGenerator,
+    CppGenerator,
+    CSharpGenerator,
+    GoGenerator,
+    RubyGenerator,
+    GenericGenerator
+};

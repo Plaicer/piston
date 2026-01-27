@@ -137,6 +137,12 @@ const options = {
             validate_overrides,
         ],
     },
+    max_test_cases: {
+        desc: 'Maximum number of test cases allowed per testCompile request (0 = unlimited)',
+        default: 0,
+        parser: parse_int,
+        validators: [(x, raw) => !is_nan(x) || `${raw} is not a number`],
+    },
 };
 
 Object.freeze(options);
