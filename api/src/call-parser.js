@@ -3,13 +3,15 @@ const acorn = require('acorn');
 /**
  * Convert Python tuple syntax to JavaScript array syntax
  * e.g., [(1, "a"), (2, "b")] -> [[1, "a"], [2, "b"]]
- * Handles nested tuples and preserves strings
+ * Uses a stack to properly track function calls vs tuples
  */
 function convertPythonTuplesToArrays(str) {
     let result = '';
     let i = 0;
     let inString = false;
     let stringChar = '';
+    // Stack to track: 'func' for function call parens, 'tuple' for converted tuples, 'array' for original arrays
+    const stack = [];
 
     while (i < str.length) {
         const char = str[i];
@@ -30,58 +32,46 @@ function convertPythonTuplesToArrays(str) {
 
         if (!inString) {
             if (char === '(') {
-                // Check if this is a function call by looking backwards
+                // Check if this is a function call by looking backwards in original string
                 let j = i - 1;
                 while (j >= 0 && /\s/.test(str[j])) j--;
 
-                if (j >= 0 && /[a-zA-Z0-9_]/.test(str[j])) {
+                if (j >= 0 && /[a-zA-Z0-9_\)]/.test(str[j])) {
                     // It's a function call, keep as '('
                     result += '(';
+                    stack.push('func');
                 } else {
                     // It's a tuple, convert to '['
                     result += '[';
+                    stack.push('tuple');
                 }
                 i++;
                 continue;
             }
 
             if (char === ')') {
-                // Check if this closes a function call or a tuple
-                // Count unmatched function calls vs tuples before this point
-                let funcDepth = 0;
-                let tupleDepth = 0;
-                let tempInString = false;
-                let tempStringChar = '';
-
-                for (let k = 0; k < result.length; k++) {
-                    const c = result[k];
-                    const pc = k > 0 ? result[k - 1] : '';
-
-                    if ((c === '"' || c === "'") && pc !== '\\') {
-                        if (!tempInString) {
-                            tempInString = true;
-                            tempStringChar = c;
-                        } else if (c === tempStringChar) {
-                            tempInString = false;
-                        }
-                        continue;
-                    }
-
-                    if (!tempInString) {
-                        if (c === '(') funcDepth++;
-                        else if (c === ')') funcDepth--;
-                        else if (c === '[') tupleDepth++;
-                        else if (c === ']') tupleDepth--;
-                    }
-                }
-
-                if (funcDepth > 0) {
-                    // Closing a function call
+                // Pop from stack to determine what we're closing
+                const type = stack.pop();
+                if (type === 'func') {
                     result += ')';
                 } else {
-                    // Closing a tuple (now array)
+                    // tuple -> close as array
                     result += ']';
                 }
+                i++;
+                continue;
+            }
+
+            if (char === '[') {
+                result += '[';
+                stack.push('array');
+                i++;
+                continue;
+            }
+
+            if (char === ']') {
+                stack.pop(); // Should be 'array'
+                result += ']';
                 i++;
                 continue;
             }
