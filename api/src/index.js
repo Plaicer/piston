@@ -3,6 +3,7 @@ require('nocamel');
 const Logger = require('logplease');
 const express = require('express');
 const expressWs = require('express-ws');
+const cors = require('cors');
 const globals = require('./globals');
 const config = require('./config');
 const path = require('path');
@@ -63,6 +64,33 @@ expressWs(app);
     logger.info('Starting API Server');
     logger.debug('Constructing Express App');
     logger.debug('Registering middleware');
+
+    // CORS configuration
+    const allowedOrigins = [
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'https://plaicer.com',
+        'https://www.plaicer.com',
+        'http://admin.plaicer.com',
+        'https://admin.plaicer.com',
+    ];
+
+    app.use(cors({
+        origin: function (origin, callback) {
+            // Allow requests with no origin (like mobile apps or curl requests)
+            if (!origin) return callback(null, true);
+
+            if (allowedOrigins.includes(origin)) {
+                callback(null, true);
+            } else {
+                logger.warn(`CORS blocked origin: ${origin}`);
+                callback(null, false);
+            }
+        },
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
+    }));
 
     app.use(body_parser.urlencoded({ extended: true }));
     app.use(body_parser.json());
