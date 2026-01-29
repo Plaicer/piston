@@ -1,17 +1,115 @@
 const acorn = require('acorn');
 
 /**
+ * Convert Python tuple syntax to JavaScript array syntax
+ * e.g., [(1, "a"), (2, "b")] -> [[1, "a"], [2, "b"]]
+ * Handles nested tuples and preserves strings
+ */
+function convertPythonTuplesToArrays(str) {
+    let result = '';
+    let i = 0;
+    let inString = false;
+    let stringChar = '';
+
+    while (i < str.length) {
+        const char = str[i];
+        const prevChar = i > 0 ? str[i - 1] : '';
+
+        // Track string boundaries
+        if ((char === '"' || char === "'") && prevChar !== '\\') {
+            if (!inString) {
+                inString = true;
+                stringChar = char;
+            } else if (char === stringChar) {
+                inString = false;
+            }
+            result += char;
+            i++;
+            continue;
+        }
+
+        if (!inString) {
+            if (char === '(') {
+                // Check if this is a function call by looking backwards
+                let j = i - 1;
+                while (j >= 0 && /\s/.test(str[j])) j--;
+
+                if (j >= 0 && /[a-zA-Z0-9_]/.test(str[j])) {
+                    // It's a function call, keep as '('
+                    result += '(';
+                } else {
+                    // It's a tuple, convert to '['
+                    result += '[';
+                }
+                i++;
+                continue;
+            }
+
+            if (char === ')') {
+                // Check if this closes a function call or a tuple
+                // Count unmatched function calls vs tuples before this point
+                let funcDepth = 0;
+                let tupleDepth = 0;
+                let tempInString = false;
+                let tempStringChar = '';
+
+                for (let k = 0; k < result.length; k++) {
+                    const c = result[k];
+                    const pc = k > 0 ? result[k - 1] : '';
+
+                    if ((c === '"' || c === "'") && pc !== '\\') {
+                        if (!tempInString) {
+                            tempInString = true;
+                            tempStringChar = c;
+                        } else if (c === tempStringChar) {
+                            tempInString = false;
+                        }
+                        continue;
+                    }
+
+                    if (!tempInString) {
+                        if (c === '(') funcDepth++;
+                        else if (c === ')') funcDepth--;
+                        else if (c === '[') tupleDepth++;
+                        else if (c === ']') tupleDepth--;
+                    }
+                }
+
+                if (funcDepth > 0) {
+                    // Closing a function call
+                    result += ')';
+                } else {
+                    // Closing a tuple (now array)
+                    result += ']';
+                }
+                i++;
+                continue;
+            }
+        }
+
+        result += char;
+        i++;
+    }
+
+    return result;
+}
+
+/**
  * Parse a JavaScript-like call expression into structured data
  * e.g., "compute({a: 1, b: 2}, 5)" -> { function: "compute", args: [{a: 1, b: 2}, 5] }
+ * Also supports Python tuple syntax which gets converted to arrays
  */
 function parseCallExpression(callStr) {
     if (!callStr || typeof callStr !== 'string') {
         throw new Error('Call expression must be a non-empty string');
     }
 
+    // Convert Python tuples to JavaScript arrays
+    const jsCallStr = convertPythonTuplesToArrays(callStr.trim());
+
     let ast;
     try {
-        ast = acorn.parseExpressionAt(callStr.trim(), 0, { ecmaVersion: 2020 });
+        ast = acorn.parseExpressionAt(jsCallStr, 0, { ecmaVersion: 2020 });
     } catch (e) {
         throw new Error(`Failed to parse call expression: ${e.message}`);
     }

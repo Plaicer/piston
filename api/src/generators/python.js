@@ -6,6 +6,7 @@ const BaseGenerator = require('./base');
 class PythonGenerator extends BaseGenerator {
     constructor() {
         super('python');
+        this.nestingLevel = 0;
     }
 
     boolLiteral(value) {
@@ -30,6 +31,26 @@ class PythonGenerator extends BaseGenerator {
         const pairs = Object.entries(obj)
             .map(([k, v]) => `${this.stringLiteral(k)}: ${this.valueToCode(v)}`);
         return '{' + pairs.join(', ') + '}';
+    }
+
+    // Override arrayLiteral to output tuples for nested arrays (common Python pattern)
+    // e.g., [(1, "a"), (2, "b")] - outer is list, inner are tuples
+    arrayLiteral(arr) {
+        this.nestingLevel++;
+        const elements = arr.map(v => this.valueToCode(v)).join(', ');
+        this.nestingLevel--;
+
+        // Top-level arrays stay as lists, nested arrays become tuples
+        if (this.nestingLevel > 0) {
+            // Nested array -> tuple
+            // Handle single-element tuples: (x,) instead of (x)
+            if (arr.length === 1) {
+                return '(' + elements + ',)';
+            }
+            return '(' + elements + ')';
+        }
+        // Top-level -> list
+        return '[' + elements + ']';
     }
 
     generateRunner(userFiles, testCases) {
