@@ -28,8 +28,13 @@ RUN apt-get update && \
     libncurses6 libncurses5 libedit-dev libseccomp-dev rename procps python3 \
     libreadline-dev libblas-dev liblapack-dev libpcre3-dev libarpack2-dev \
     libfftw3-dev libglpk-dev libqhull-dev libqrupdate-dev libsuitesparse-dev \
-    libsundials-dev libpcre2-dev libcap-dev && \
+    libsundials-dev libpcre2-dev libcap-dev wget && \
     rm -rf /var/lib/apt/lists/*
+
+# Install nlohmann/json header-only library for C++ testCompile support
+RUN mkdir -p /usr/local/include/nlohmann && \
+    wget -q -O /usr/local/include/nlohmann/json.hpp \
+    https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp
 RUN useradd -M piston
 COPY --from=isolate /usr/local/bin/isolate /usr/local/bin
 COPY --from=isolate /usr/local/etc/isolate /usr/local/etc/isolate
