@@ -1,5 +1,6 @@
 const PythonGenerator = require('./python');
 const JavaScriptGenerator = require('./javascript');
+const TypeScriptGenerator = require('./typescript');
 const JavaGenerator = require('./java');
 const CGenerator = require('./c');
 const CppGenerator = require('./cpp');
@@ -26,9 +27,9 @@ const generators = {
     nodejs: new JavaScriptGenerator(),
     'node-javascript': new JavaScriptGenerator(),
 
-    // TypeScript (uses JS runner since it compiles to JS)
-    typescript: new JavaScriptGenerator(),
-    ts: new JavaScriptGenerator(),
+    // TypeScript
+    typescript: new TypeScriptGenerator(),
+    ts: new TypeScriptGenerator(),
 
     // Java family
     java: new JavaGenerator(),
@@ -116,6 +117,7 @@ module.exports = {
     // Export individual generators for testing
     PythonGenerator,
     JavaScriptGenerator,
+    TypeScriptGenerator,
     JavaGenerator,
     CGenerator,
     CppGenerator,
