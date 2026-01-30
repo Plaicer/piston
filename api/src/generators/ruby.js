@@ -2,44 +2,23 @@ const BaseGenerator = require('./base');
 
 /**
  * Ruby test runner generator
+ *
+ * PASS-THROUGH MODE: Call expressions are passed directly to Ruby's eval()
+ * This supports all Ruby syntax including blocks, procs, etc.
  */
 class RubyGenerator extends BaseGenerator {
     constructor() {
         super('ruby');
     }
 
-    boolLiteral(value) {
-        return value ? 'true' : 'false';
-    }
-
-    nullLiteral() {
-        return 'nil';
-    }
-
-    numberLiteral(value) {
-        if (Number.isNaN(value)) return 'Float::NAN';
-        if (!Number.isFinite(value)) {
-            return value > 0 ? 'Float::INFINITY' : '-Float::INFINITY';
-        }
-        return String(value);
-    }
-
-    objectLiteral(obj) {
-        // Ruby uses => for hash key-value pairs
-        const pairs = Object.entries(obj)
-            .map(([k, v]) => `${this.stringLiteral(k)} => ${this.valueToCode(v)}`);
-        return '{' + pairs.join(', ') + '}';
-    }
-
     generateRunner(userFiles, testCases) {
         const mainFile = userFiles[0];
         const moduleName = mainFile.name.replace(/\.rb$/, '');
 
-        // Convert each test case call to Ruby syntax
-        const nativeTestCases = testCases.map(tc => ({
-            ...tc,
-            call_native: this.callToNative(tc.parsed),
-            parsed: undefined
+        // Pass test cases with raw call strings - Ruby will eval them directly
+        const testData = testCases.map(tc => ({
+            call: tc.call,
+            expected: tc.expected
         }));
 
         const runnerCode = `
@@ -115,8 +94,9 @@ results = []
 
 test_cases.each_with_index do |tc, i|
   begin
-    # Execute the function call
-    actual = eval(tc['call_native'])
+    # Execute the function call directly using Ruby eval
+    # This supports all Ruby syntax
+    actual = eval(tc['call'])
 
     # Compare with expected
     passed = deep_equals(actual, tc['expected'])
@@ -146,7 +126,7 @@ puts JSON.generate(results)
                 { name: '__test_runner__.rb', content: runnerCode.trim() }
             ],
             entryPoint: '__test_runner__.rb',
-            stdin: JSON.stringify(nativeTestCases)
+            stdin: JSON.stringify(testData)
         };
     }
 }

@@ -1,20 +1,13 @@
 /**
- * Unit tests for call-parser and generators
- * Run with: node test-unit.js
+ * Unit tests for testCompile components
+ *
+ * PASS-THROUGH MODE: Call expressions are passed directly to the language runtime.
+ * This allows language-specific syntax like Python lambdas, list comprehensions, etc.
  */
 
-const callParser = require('./src/call-parser');
-const {
-    generateTestRunner,
-    PythonGenerator,
-    JavaScriptGenerator,
-    JavaGenerator,
-    CppGenerator,
-    CSharpGenerator,
-    GoGenerator,
-    RubyGenerator
-} = require('./src/generators');
+const { generateTestRunner } = require('./src/generators');
 
+// Test state
 let passed = 0;
 let failed = 0;
 
@@ -23,577 +16,44 @@ function test(name, fn) {
         fn();
         console.log(`✅ ${name}`);
         passed++;
-    } catch (error) {
+    } catch (err) {
         console.log(`❌ ${name}`);
-        console.log(`   Error: ${error.message}`);
+        console.log(`   Error: ${err.message}`);
         failed++;
     }
 }
 
-function assertEqual(actual, expected, message = '') {
+function assertEqual(actual, expected) {
     const actualStr = JSON.stringify(actual);
     const expectedStr = JSON.stringify(expected);
     if (actualStr !== expectedStr) {
-        throw new Error(`${message}\n   Expected: ${expectedStr}\n   Actual: ${actualStr}`);
+        throw new Error(`Expected ${expectedStr}, got ${actualStr}`);
     }
 }
 
-console.log('='.repeat(60));
-console.log('Unit Tests for testCompile Components');
-console.log('='.repeat(60));
-console.log();
+function assertContains(str, substr) {
+    if (!str.includes(substr)) {
+        throw new Error(`Expected string to contain "${substr}"`);
+    }
+}
 
-// ============================================
-// Call Parser Tests
-// ============================================
-console.log('\n--- Call Parser Tests ---\n');
-
-test('Parse simple function call', () => {
-    const result = callParser.parseCallExpression('add(1, 2)');
-    assertEqual(result.function, 'add');
-    assertEqual(result.args, [1, 2]);
-});
-
-test('Parse function with string argument', () => {
-    const result = callParser.parseCallExpression('greet("World")');
-    assertEqual(result.function, 'greet');
-    assertEqual(result.args, ['World']);
-});
-
-test('Parse function with object argument', () => {
-    const result = callParser.parseCallExpression('compute({a: 1, b: 2}, 5)');
-    assertEqual(result.function, 'compute');
-    assertEqual(result.args, [{a: 1, b: 2}, 5]);
-});
-
-test('Parse function with array argument', () => {
-    const result = callParser.parseCallExpression('sum([1, 2, 3])');
-    assertEqual(result.function, 'sum');
-    assertEqual(result.args, [[1, 2, 3]]);
-});
-
-test('Parse function with nested objects', () => {
-    const result = callParser.parseCallExpression('process({items: [1, 2], meta: {count: 2}})');
-    assertEqual(result.function, 'process');
-    assertEqual(result.args, [{items: [1, 2], meta: {count: 2}}]);
-});
-
-test('Parse function with boolean arguments', () => {
-    const result = callParser.parseCallExpression('check(true, false)');
-    assertEqual(result.function, 'check');
-    assertEqual(result.args, [true, false]);
-});
-
-test('Parse function with null argument', () => {
-    const result = callParser.parseCallExpression('process(null)');
-    assertEqual(result.function, 'process');
-    assertEqual(result.args, [null]);
-});
-
-test('Parse function with negative numbers', () => {
-    const result = callParser.parseCallExpression('calculate(-5, -10.5)');
-    assertEqual(result.function, 'calculate');
-    assertEqual(result.args, [-5, -10.5]);
-});
-
-test('Parse function with no arguments', () => {
-    const result = callParser.parseCallExpression('getData()');
-    assertEqual(result.function, 'getData');
-    assertEqual(result.args, []);
-});
-
-test('Parse function with mixed types', () => {
-    const result = callParser.parseCallExpression('mixed(1, "two", [3], {four: 4}, true, null)');
-    assertEqual(result.function, 'mixed');
-    assertEqual(result.args, [1, 'two', [3], {four: 4}, true, null]);
-});
+console.log('============================================================');
+console.log('Unit Tests for testCompile Components (Pass-Through Mode)');
+console.log('============================================================\n');
 
 // ============================================
 // Python Generator Tests
 // ============================================
-console.log('\n--- Python Generator Tests ---\n');
+console.log('--- Python Generator Tests ---\n');
 
-test('Python generator - valueToCode for basic types', () => {
-    const gen = new PythonGenerator();
-    assertEqual(gen.valueToCode(42), '42');
-    assertEqual(gen.valueToCode('hello'), '"hello"');
-    assertEqual(gen.valueToCode(true), 'True');
-    assertEqual(gen.valueToCode(false), 'False');
-    assertEqual(gen.valueToCode(null), 'None');
-});
-
-test('Python generator - valueToCode for arrays', () => {
-    const gen = new PythonGenerator();
-    assertEqual(gen.valueToCode([1, 2, 3]), '[1, 2, 3]');
-    assertEqual(gen.valueToCode([]), '[]');
-});
-
-test('Python generator - valueToCode for objects', () => {
-    const gen = new PythonGenerator();
-    assertEqual(gen.valueToCode({a: 1, b: 2}), '{"a": 1, "b": 2}');
-});
-
-test('Python generator - callToNative', () => {
-    const gen = new PythonGenerator();
-    const parsed = { function: 'add', args: [1, 2] };
-    assertEqual(gen.callToNative(parsed), 'add(1, 2)');
-});
-
-test('Python generator - callToNative with object', () => {
-    const gen = new PythonGenerator();
-    const parsed = { function: 'compute', args: [{a: 1}, 5] };
-    assertEqual(gen.callToNative(parsed), 'compute({"a": 1}, 5)');
-});
-
-test('Python generator - generates runner files', () => {
-    const gen = new PythonGenerator();
-    const userFiles = [{ name: 'solution.py', content: 'def add(a, b): return a + b' }];
-    const testCases = [
-        { call: 'add(1, 2)', expected: 3, parsed: { function: 'add', args: [1, 2] } }
-    ];
-    const result = gen.generateRunner(userFiles, testCases);
-
-    // Check that files were generated
-    if (result.files.length !== 2) {
-        throw new Error(`Expected 2 files, got ${result.files.length}`);
-    }
-    if (result.entryPoint !== '__test_runner__.py') {
-        throw new Error(`Expected entry point __test_runner__.py, got ${result.entryPoint}`);
-    }
-    if (!result.stdin) {
-        throw new Error('Expected stdin to be set');
-    }
-});
-
-// ============================================
-// JavaScript Generator Tests
-// ============================================
-console.log('\n--- JavaScript Generator Tests ---\n');
-
-test('JavaScript generator - valueToCode for basic types', () => {
-    const gen = new JavaScriptGenerator();
-    assertEqual(gen.valueToCode(42), '42');
-    assertEqual(gen.valueToCode('hello'), '"hello"');
-    assertEqual(gen.valueToCode(true), 'true');
-    assertEqual(gen.valueToCode(false), 'false');
-    assertEqual(gen.valueToCode(null), 'null');
-});
-
-test('JavaScript generator - valueToCode for objects (unquoted keys)', () => {
-    const gen = new JavaScriptGenerator();
-    assertEqual(gen.valueToCode({a: 1, b: 2}), '{a: 1, b: 2}');
-});
-
-test('JavaScript generator - callToNative', () => {
-    const gen = new JavaScriptGenerator();
-    const parsed = { function: 'add', args: [1, 2] };
-    assertEqual(gen.callToNative(parsed), 'add(1, 2)');
-});
-
-test('JavaScript generator - generates runner files', () => {
-    const gen = new JavaScriptGenerator();
-    const userFiles = [{ name: 'solution.js', content: 'function add(a, b) { return a + b; }' }];
-    const testCases = [
-        { call: 'add(1, 2)', expected: 3, parsed: { function: 'add', args: [1, 2] } }
-    ];
-    const result = gen.generateRunner(userFiles, testCases);
-
-    // Check that files were generated
-    if (result.files.length !== 1) {
-        throw new Error(`Expected 1 file, got ${result.files.length}`);
-    }
-    if (result.entryPoint !== '__test_runner__.js') {
-        throw new Error(`Expected entry point __test_runner__.js, got ${result.entryPoint}`);
-    }
-});
-
-// ============================================
-// Integration Test: generateTestRunner
-// ============================================
-console.log('\n--- Integration Tests ---\n');
-
-test('generateTestRunner for Python', () => {
+test('Python - generates runner with test cases', () => {
     const userFiles = [{ name: 'solution.py', content: 'def add(a, b): return a + b' }];
     const testCases = [
         { call: 'add(1, 2)', expected: 3 },
         { call: 'add(10, 20)', expected: 30 }
     ];
 
-    const result = generateTestRunner('python', userFiles, testCases, callParser);
-
-    if (!result.files || result.files.length === 0) {
-        throw new Error('No files generated');
-    }
-    if (!result.entryPoint) {
-        throw new Error('No entry point specified');
-    }
-    if (!result.stdin) {
-        throw new Error('No stdin specified');
-    }
-
-    // Verify stdin contains the test cases
-    const stdinData = JSON.parse(result.stdin);
-    if (stdinData.length !== 2) {
-        throw new Error(`Expected 2 test cases in stdin, got ${stdinData.length}`);
-    }
-});
-
-test('generateTestRunner for JavaScript', () => {
-    const userFiles = [{ name: 'solution.js', content: 'function sum(arr) { return arr.reduce((a,b) => a+b, 0); }' }];
-    const testCases = [
-        { call: 'sum([1, 2, 3])', expected: 6 }
-    ];
-
-    const result = generateTestRunner('javascript', userFiles, testCases, callParser);
-
-    if (!result.files || result.files.length === 0) {
-        throw new Error('No files generated');
-    }
-});
-
-test('generateTestRunner for unknown language (fallback)', () => {
-    const userFiles = [{ name: 'solution.xyz', content: 'some code' }];
-    const testCases = [
-        { call: 'test(1)', expected: 1 }
-    ];
-
-    const result = generateTestRunner('unknownlang', userFiles, testCases, callParser);
-
-    if (result.mode !== 'fallback') {
-        throw new Error(`Expected fallback mode, got ${result.mode}`);
-    }
-});
-
-// ============================================
-// Complex Types Tests - All Languages
-// ============================================
-console.log('\n--- Complex Types Tests ---\n');
-
-// Test tuples (represented as arrays in universal syntax)
-test('Parse tuple-like array', () => {
-    const result = callParser.parseCallExpression('getTuple([1, "hello", true])');
-    assertEqual(result.function, 'getTuple');
-    assertEqual(result.args, [[1, "hello", true]]);
-});
-
-test('Parse nested tuple/array', () => {
-    const result = callParser.parseCallExpression('process([[1, 2], [3, 4], [5, 6]])');
-    assertEqual(result.function, 'process');
-    assertEqual(result.args, [[[1, 2], [3, 4], [5, 6]]]);
-});
-
-// Test deeply nested structures
-test('Parse deeply nested structure', () => {
-    const result = callParser.parseCallExpression('deepNest({a: {b: {c: {d: [1, 2, 3]}}}})');
-    assertEqual(result.function, 'deepNest');
-    assertEqual(result.args, [{a: {b: {c: {d: [1, 2, 3]}}}}]);
-});
-
-// Test special numeric values
-test('Parse special numbers (Infinity)', () => {
-    // Note: Infinity is parsed as identifier, which throws
-    // We handle this in call-parser
-    try {
-        callParser.parseCallExpression('handleInf(Infinity)');
-    } catch (e) {
-        // Expected - Infinity not supported directly in universal syntax
-    }
-});
-
-// Test empty collections
-test('Parse empty array', () => {
-    const result = callParser.parseCallExpression('process([])');
-    assertEqual(result.function, 'process');
-    assertEqual(result.args, [[]]);
-});
-
-test('Parse empty object', () => {
-    const result = callParser.parseCallExpression('process({})');
-    assertEqual(result.function, 'process');
-    assertEqual(result.args, [{}]);
-});
-
-// Test complex mixed types
-test('Parse complex mixed argument types', () => {
-    const result = callParser.parseCallExpression('complex({items: [1, 2], meta: {name: "test", active: true}}, [null, false], "suffix")');
-    assertEqual(result.function, 'complex');
-    assertEqual(result.args, [
-        {items: [1, 2], meta: {name: "test", active: true}},
-        [null, false],
-        "suffix"
-    ]);
-});
-
-// ============================================
-// Python Generator - Complex Types
-// ============================================
-console.log('\n--- Python Generator Complex Types ---\n');
-
-test('Python - tuple-like array conversion', () => {
-    const gen = new PythonGenerator();
-    // Tuples in Python are represented as arrays in universal syntax
-    assertEqual(gen.valueToCode([1, "hello", true]), '[1, "hello", True]');
-});
-
-test('Python - nested dict conversion', () => {
-    const gen = new PythonGenerator();
-    const nested = {outer: {inner: {deep: 42}}};
-    assertEqual(gen.valueToCode(nested), '{"outer": {"inner": {"deep": 42}}}');
-});
-
-test('Python - NaN and Infinity', () => {
-    const gen = new PythonGenerator();
-    assertEqual(gen.valueToCode(NaN), 'float("nan")');
-    assertEqual(gen.valueToCode(Infinity), 'float("inf")');
-    assertEqual(gen.valueToCode(-Infinity), 'float("-inf")');
-});
-
-test('Python - mixed array with objects', () => {
-    const gen = new PythonGenerator();
-    const mixed = [{a: 1}, {b: 2}, [3, 4]];
-    assertEqual(gen.valueToCode(mixed), '[{"a": 1}, {"b": 2}, [3, 4]]');
-});
-
-test('Python - callToNative with complex args', () => {
-    const gen = new PythonGenerator();
-    const parsed = {
-        function: 'transform',
-        args: [{data: [1, 2, 3], config: {normalize: true}}]
-    };
-    assertEqual(gen.callToNative(parsed), 'transform({"data": [1, 2, 3], "config": {"normalize": True}})');
-});
-
-// ============================================
-// JavaScript Generator - Complex Types
-// ============================================
-console.log('\n--- JavaScript Generator Complex Types ---\n');
-
-test('JavaScript - nested object with unquoted keys', () => {
-    const gen = new JavaScriptGenerator();
-    const nested = {outer: {inner: {value: 42}}};
-    assertEqual(gen.valueToCode(nested), '{outer: {inner: {value: 42}}}');
-});
-
-test('JavaScript - array of objects', () => {
-    const gen = new JavaScriptGenerator();
-    const arr = [{id: 1, name: "a"}, {id: 2, name: "b"}];
-    assertEqual(gen.valueToCode(arr), '[{id: 1, name: "a"}, {id: 2, name: "b"}]');
-});
-
-test('JavaScript - NaN and Infinity', () => {
-    const gen = new JavaScriptGenerator();
-    assertEqual(gen.valueToCode(NaN), 'NaN');
-    assertEqual(gen.valueToCode(Infinity), 'Infinity');
-    assertEqual(gen.valueToCode(-Infinity), '-Infinity');
-});
-
-test('JavaScript - callToNative with nested structure', () => {
-    const gen = new JavaScriptGenerator();
-    const parsed = {
-        function: 'analyze',
-        args: [{points: [[0, 0], [1, 1], [2, 4]]}, "linear"]
-    };
-    assertEqual(gen.callToNative(parsed), 'analyze({points: [[0, 0], [1, 1], [2, 4]]}, "linear")');
-});
-
-// ============================================
-// Java Generator - Complex Types
-// ============================================
-console.log('\n--- Java Generator Complex Types ---\n');
-
-test('Java - array conversion to Arrays.asList', () => {
-    const gen = new JavaGenerator();
-    assertEqual(gen.valueToCode([1, 2, 3]), 'Arrays.asList(1, 2, 3)');
-});
-
-test('Java - object conversion to Map.of', () => {
-    const gen = new JavaGenerator();
-    assertEqual(gen.valueToCode({a: 1, b: 2}), 'Map.of("a", 1, "b", 2)');
-});
-
-test('Java - empty map', () => {
-    const gen = new JavaGenerator();
-    assertEqual(gen.valueToCode({}), 'new HashMap<>()');
-});
-
-test('Java - NaN and Infinity', () => {
-    const gen = new JavaGenerator();
-    assertEqual(gen.valueToCode(NaN), 'Double.NaN');
-    assertEqual(gen.valueToCode(Infinity), 'Double.POSITIVE_INFINITY');
-    assertEqual(gen.valueToCode(-Infinity), 'Double.NEGATIVE_INFINITY');
-});
-
-test('Java - long numbers', () => {
-    const gen = new JavaGenerator();
-    assertEqual(gen.valueToCode(3000000000), '3000000000L');
-    assertEqual(gen.valueToCode(-3000000000), '-3000000000L');
-});
-
-test('Java - double numbers', () => {
-    const gen = new JavaGenerator();
-    assertEqual(gen.valueToCode(3.14), '3.14d');
-});
-
-// ============================================
-// C++ Generator - Complex Types
-// ============================================
-console.log('\n--- C++ Generator Complex Types ---\n');
-
-test('C++ - array conversion', () => {
-    const gen = new CppGenerator();
-    assertEqual(gen.valueToCode([1, 2, 3]), '{1, 2, 3}');
-});
-
-test('C++ - object conversion', () => {
-    const gen = new CppGenerator();
-    assertEqual(gen.valueToCode({x: 10, y: 20}), '{{"x", 10}, {"y", 20}}');
-});
-
-test('C++ - NaN and Infinity', () => {
-    const gen = new CppGenerator();
-    assertEqual(gen.valueToCode(NaN), 'std::numeric_limits<double>::quiet_NaN()');
-    assertEqual(gen.valueToCode(Infinity), 'std::numeric_limits<double>::infinity()');
-    assertEqual(gen.valueToCode(-Infinity), '-std::numeric_limits<double>::infinity()');
-});
-
-test('C++ - long long numbers', () => {
-    const gen = new CppGenerator();
-    assertEqual(gen.valueToCode(3000000000), '3000000000LL');
-});
-
-test('C++ - nullptr', () => {
-    const gen = new CppGenerator();
-    assertEqual(gen.valueToCode(null), 'nullptr');
-});
-
-// ============================================
-// C# Generator - Complex Types
-// ============================================
-console.log('\n--- C# Generator Complex Types ---\n');
-
-test('C# - array conversion', () => {
-    const gen = new CSharpGenerator();
-    assertEqual(gen.valueToCode([1, 2, 3]), 'new object[] {1, 2, 3}');
-});
-
-test('C# - dictionary conversion', () => {
-    const gen = new CSharpGenerator();
-    assertEqual(gen.valueToCode({a: 1}), 'new Dictionary<string, object> {{"a", 1}}');
-});
-
-test('C# - NaN and Infinity', () => {
-    const gen = new CSharpGenerator();
-    assertEqual(gen.valueToCode(NaN), 'double.NaN');
-    assertEqual(gen.valueToCode(Infinity), 'double.PositiveInfinity');
-    assertEqual(gen.valueToCode(-Infinity), 'double.NegativeInfinity');
-});
-
-test('C# - long numbers', () => {
-    const gen = new CSharpGenerator();
-    assertEqual(gen.valueToCode(3000000000), '3000000000L');
-});
-
-test('C# - double suffix', () => {
-    const gen = new CSharpGenerator();
-    assertEqual(gen.valueToCode(3.14159), '3.14159d');
-});
-
-// ============================================
-// Go Generator - Complex Types
-// ============================================
-console.log('\n--- Go Generator Complex Types ---\n');
-
-test('Go - slice conversion', () => {
-    const gen = new GoGenerator();
-    assertEqual(gen.valueToCode([1, 2, 3]), '[]interface{}{1, 2, 3}');
-});
-
-test('Go - map conversion', () => {
-    const gen = new GoGenerator();
-    assertEqual(gen.valueToCode({x: 1, y: 2}), 'map[string]interface{}{"x": 1, "y": 2}');
-});
-
-test('Go - NaN and Infinity', () => {
-    const gen = new GoGenerator();
-    assertEqual(gen.valueToCode(NaN), 'math.NaN()');
-    assertEqual(gen.valueToCode(Infinity), 'math.Inf(1)');
-    assertEqual(gen.valueToCode(-Infinity), 'math.Inf(-1)');
-});
-
-test('Go - nil', () => {
-    const gen = new GoGenerator();
-    assertEqual(gen.valueToCode(null), 'nil');
-});
-
-// ============================================
-// Ruby Generator - Complex Types
-// ============================================
-console.log('\n--- Ruby Generator Complex Types ---\n');
-
-test('Ruby - hash with arrow syntax', () => {
-    const gen = new RubyGenerator();
-    assertEqual(gen.valueToCode({a: 1, b: 2}), '{"a" => 1, "b" => 2}');
-});
-
-test('Ruby - NaN and Infinity', () => {
-    const gen = new RubyGenerator();
-    assertEqual(gen.valueToCode(NaN), 'Float::NAN');
-    assertEqual(gen.valueToCode(Infinity), 'Float::INFINITY');
-    assertEqual(gen.valueToCode(-Infinity), '-Float::INFINITY');
-});
-
-test('Ruby - nil', () => {
-    const gen = new RubyGenerator();
-    assertEqual(gen.valueToCode(null), 'nil');
-});
-
-test('Ruby - nested hash', () => {
-    const gen = new RubyGenerator();
-    const nested = {user: {name: "John", scores: [90, 85, 92]}};
-    assertEqual(gen.valueToCode(nested), '{"user" => {"name" => "John", "scores" => [90, 85, 92]}}');
-});
-
-// ============================================
-// Cross-Language Integration Tests
-// ============================================
-console.log('\n--- Cross-Language Integration Tests ---\n');
-
-test('All generators handle deeply nested structure', () => {
-    const complex = {
-        data: {
-            items: [
-                {id: 1, values: [10, 20]},
-                {id: 2, values: [30, 40]}
-            ],
-            meta: {count: 2, active: true}
-        }
-    };
-
-    const generators = [
-        { name: 'Python', gen: new PythonGenerator() },
-        { name: 'JavaScript', gen: new JavaScriptGenerator() },
-        { name: 'Java', gen: new JavaGenerator() },
-        { name: 'Go', gen: new GoGenerator() },
-        { name: 'Ruby', gen: new RubyGenerator() }
-    ];
-
-    for (const {name, gen} of generators) {
-        const code = gen.valueToCode(complex);
-        if (!code || code.length === 0) {
-            throw new Error(`${name} generator produced empty output`);
-        }
-    }
-});
-
-test('generateTestRunner handles complex test cases for Python', () => {
-    const userFiles = [{ name: 'solution.py', content: 'def transform(data): return data' }];
-    const testCases = [
-        { call: 'transform({items: [1, 2], meta: {count: 2}})', expected: {items: [1, 2], meta: {count: 2}} },
-        { call: 'transform([[1, 2], [3, 4]])', expected: [[1, 2], [3, 4]] },
-        { call: 'transform(null)', expected: null }
-    ];
-
-    const result = generateTestRunner('python', userFiles, testCases, callParser);
+    const result = generateTestRunner('python', userFiles, testCases);
 
     if (!result.files || result.files.length === 0) {
         throw new Error('No files generated');
@@ -602,78 +62,316 @@ test('generateTestRunner handles complex test cases for Python', () => {
         throw new Error('No stdin generated');
     }
 
-    // Verify stdin contains properly converted calls
+    // Check stdin contains raw call strings
     const stdinData = JSON.parse(result.stdin);
-    assertEqual(stdinData.length, 3);
-
-    // Check first test case has Python-converted call
-    if (!stdinData[0].call_native.includes('"items"')) {
-        throw new Error('Python call should have quoted keys');
-    }
+    assertEqual(stdinData.length, 2);
+    assertEqual(stdinData[0].call, 'add(1, 2)');
+    assertEqual(stdinData[0].expected, 3);
 });
 
-test('generateTestRunner handles complex test cases for JavaScript', () => {
-    const userFiles = [{ name: 'solution.js', content: 'function process(data) { return data; }' }];
+test('Python - supports Python-specific syntax (list comprehension)', () => {
+    const userFiles = [{ name: 'solution.py', content: 'def process(x): return x' }];
     const testCases = [
-        { call: 'process({nested: {deep: [1, 2, 3]}})', expected: {nested: {deep: [1, 2, 3]}} }
+        { call: '[x**2 for x in range(5)]', expected: [0, 1, 4, 9, 16] }
     ];
 
-    const result = generateTestRunner('javascript', userFiles, testCases, callParser);
+    const result = generateTestRunner('python', userFiles, testCases);
+    const stdinData = JSON.parse(result.stdin);
+
+    // Call is passed through as-is
+    assertEqual(stdinData[0].call, '[x**2 for x in range(5)]');
+});
+
+test('Python - supports Python lambda expressions', () => {
+    const userFiles = [{ name: 'solution.py', content: 'def run(f): return f(5)' }];
+    const testCases = [
+        { call: '(lambda x: x * 2)(5)', expected: 10 }
+    ];
+
+    const result = generateTestRunner('python', userFiles, testCases);
+    const stdinData = JSON.parse(result.stdin);
+
+    assertEqual(stdinData[0].call, '(lambda x: x * 2)(5)');
+});
+
+test('Python - supports f-strings', () => {
+    const userFiles = [{ name: 'solution.py', content: 'def greet(name): return f"Hello, {name}"' }];
+    const testCases = [
+        { call: 'greet("World")', expected: 'Hello, World' }
+    ];
+
+    const result = generateTestRunner('python', userFiles, testCases);
+    const stdinData = JSON.parse(result.stdin);
+
+    assertEqual(stdinData[0].call, 'greet("World")');
+});
+
+test('Python - supports tuples as expected values', () => {
+    const userFiles = [{ name: 'solution.py', content: 'def get_pair(): return (1, 2)' }];
+    const testCases = [
+        { call: 'get_pair()', expected: [1, 2] }  // Tuples become arrays in JSON
+    ];
+
+    const result = generateTestRunner('python', userFiles, testCases);
+    const stdinData = JSON.parse(result.stdin);
+
+    assertEqual(stdinData[0].expected, [1, 2]);
+});
+
+test('Python - runner file contains eval for call execution', () => {
+    const userFiles = [{ name: 'solution.py', content: 'def add(a, b): return a + b' }];
+    const testCases = [{ call: 'add(1, 2)', expected: 3 }];
+
+    const result = generateTestRunner('python', userFiles, testCases);
+    const runnerFile = result.files.find(f => f.name === '__test_runner__.py');
+
+    if (!runnerFile) {
+        throw new Error('Runner file not found');
+    }
+
+    assertContains(runnerFile.content, "eval(tc['call'])");
+});
+
+// ============================================
+// JavaScript Generator Tests
+// ============================================
+console.log('\n--- JavaScript Generator Tests ---\n');
+
+test('JavaScript - generates runner with test cases', () => {
+    const userFiles = [{ name: 'solution.js', content: 'function add(a, b) { return a + b; }' }];
+    const testCases = [
+        { call: 'add(1, 2)', expected: 3 }
+    ];
+
+    const result = generateTestRunner('javascript', userFiles, testCases);
 
     if (!result.files || result.files.length === 0) {
         throw new Error('No files generated');
     }
+});
 
-    // JavaScript should have unquoted keys in the runner
+test('JavaScript - supports arrow functions in calls', () => {
+    const userFiles = [{ name: 'solution.js', content: 'const arr = [1, 2, 3];' }];
+    const testCases = [
+        { call: 'arr.map(x => x * 2)', expected: [2, 4, 6] }
+    ];
+
+    const result = generateTestRunner('javascript', userFiles, testCases);
+    const stdinData = JSON.parse(result.stdin);
+
+    assertEqual(stdinData[0].call, 'arr.map(x => x * 2)');
+});
+
+test('JavaScript - supports template literals', () => {
+    const userFiles = [{ name: 'solution.js', content: 'const name = "World";' }];
+    const testCases = [
+        { call: '`Hello, ${name}!`', expected: 'Hello, World!' }
+    ];
+
+    const result = generateTestRunner('javascript', userFiles, testCases);
+    const stdinData = JSON.parse(result.stdin);
+
+    assertEqual(stdinData[0].call, '`Hello, ${name}!`');
+});
+
+test('JavaScript - runner file embeds user code', () => {
+    const userFiles = [{ name: 'solution.js', content: 'function test() { return 42; }' }];
+    const testCases = [{ call: 'test()', expected: 42 }];
+
+    const result = generateTestRunner('javascript', userFiles, testCases);
     const runnerFile = result.files.find(f => f.name === '__test_runner__.js');
+
     if (!runnerFile) {
         throw new Error('Runner file not found');
     }
+
+    assertContains(runnerFile.content, 'function test()');
+    assertContains(runnerFile.content, 'eval(tc.call)');
 });
 
 // ============================================
-// Error Handling Tests
+// Ruby Generator Tests
 // ============================================
-console.log('\n--- Error Handling Tests ---\n');
+console.log('\n--- Ruby Generator Tests ---\n');
 
-test('Call parser rejects invalid syntax', () => {
-    try {
-        callParser.parseCallExpression('not a function call');
-        throw new Error('Should have thrown an error');
-    } catch (e) {
-        if (!e.message.includes('Expected a function call') && !e.message.includes('Failed to parse')) {
-            throw e;
-        }
+test('Ruby - generates runner with test cases', () => {
+    const userFiles = [{ name: 'solution.rb', content: 'def add(a, b); a + b; end' }];
+    const testCases = [
+        { call: 'add(1, 2)', expected: 3 }
+    ];
+
+    const result = generateTestRunner('ruby', userFiles, testCases);
+
+    if (!result.files || result.files.length === 0) {
+        throw new Error('No files generated');
     }
 });
 
-test('Call parser rejects empty string', () => {
-    try {
-        callParser.parseCallExpression('');
-        throw new Error('Should have thrown an error');
-    } catch (e) {
-        if (!e.message.includes('non-empty string')) {
-            throw e;
-        }
-    }
+test('Ruby - supports Ruby block syntax', () => {
+    const userFiles = [{ name: 'solution.rb', content: 'def process(arr); arr; end' }];
+    const testCases = [
+        { call: '[1, 2, 3].map { |x| x * 2 }', expected: [2, 4, 6] }
+    ];
+
+    const result = generateTestRunner('ruby', userFiles, testCases);
+    const stdinData = JSON.parse(result.stdin);
+
+    assertEqual(stdinData[0].call, '[1, 2, 3].map { |x| x * 2 }');
 });
 
-test('Call parser rejects nested function calls in args', () => {
-    try {
-        callParser.parseCallExpression('outer(inner())');
-        throw new Error('Should have thrown an error');
-    } catch (e) {
-        if (!e.message.includes('Nested function calls')) {
-            throw e;
-        }
+// ============================================
+// Java Generator Tests
+// ============================================
+console.log('\n--- Java Generator Tests ---\n');
+
+test('Java - generates runner with embedded calls', () => {
+    const userFiles = [{ name: 'Solution.java', content: 'public class Solution { public static int add(int a, int b) { return a + b; } }' }];
+    const testCases = [
+        { call: 'Solution.add(1, 2)', expected: 3 }
+    ];
+
+    const result = generateTestRunner('java', userFiles, testCases);
+    const runnerFile = result.files.find(f => f.name === '__TestRunner__.java');
+
+    if (!runnerFile) {
+        throw new Error('Runner file not found');
     }
+
+    // Java embeds the call directly in the code
+    assertContains(runnerFile.content, 'Solution.add(1, 2)');
+});
+
+// ============================================
+// C++ Generator Tests
+// ============================================
+console.log('\n--- C++ Generator Tests ---\n');
+
+test('C++ - generates runner with embedded calls', () => {
+    const userFiles = [{ name: 'solution.cpp', content: 'int add(int a, int b) { return a + b; }' }];
+    const testCases = [
+        { call: 'add(1, 2)', expected: 3 }
+    ];
+
+    const result = generateTestRunner('cpp', userFiles, testCases);
+    const runnerFile = result.files.find(f => f.name === '__test_runner__.cpp');
+
+    if (!runnerFile) {
+        throw new Error('Runner file not found');
+    }
+
+    assertContains(runnerFile.content, 'add(1, 2)');
+});
+
+// ============================================
+// Go Generator Tests
+// ============================================
+console.log('\n--- Go Generator Tests ---\n');
+
+test('Go - generates runner with embedded calls', () => {
+    const userFiles = [{ name: 'solution.go', content: 'func Add(a, b int) int { return a + b }' }];
+    const testCases = [
+        { call: 'Add(1, 2)', expected: 3 }
+    ];
+
+    const result = generateTestRunner('go', userFiles, testCases);
+    const runnerFile = result.files.find(f => f.name === '__test_runner__.go');
+
+    if (!runnerFile) {
+        throw new Error('Runner file not found');
+    }
+
+    assertContains(runnerFile.content, 'Add(1, 2)');
+});
+
+// ============================================
+// C# Generator Tests
+// ============================================
+console.log('\n--- C# Generator Tests ---\n');
+
+test('C# - generates runner with embedded calls', () => {
+    const userFiles = [{ name: 'Solution.cs', content: 'public class Solution { public static int Add(int a, int b) { return a + b; } }' }];
+    const testCases = [
+        { call: 'Solution.Add(1, 2)', expected: 3 }
+    ];
+
+    const result = generateTestRunner('csharp', userFiles, testCases);
+    const runnerFile = result.files.find(f => f.name === '__TestRunner__.cs');
+
+    if (!runnerFile) {
+        throw new Error('Runner file not found');
+    }
+
+    assertContains(runnerFile.content, 'Solution.Add(1, 2)');
+});
+
+// ============================================
+// Generic/Fallback Generator Tests
+// ============================================
+console.log('\n--- Generic/Fallback Generator Tests ---\n');
+
+test('Unknown language uses generic fallback', () => {
+    const userFiles = [{ name: 'solution.xyz', content: 'some code' }];
+    const testCases = [
+        { call: 'test(1, 2)', expected: 3 }
+    ];
+
+    const result = generateTestRunner('unknownlang', userFiles, testCases);
+
+    assertEqual(result.mode, 'fallback');
+
+    const stdinData = JSON.parse(result.stdin);
+    assertEqual(stdinData[0].call, 'test(1, 2)');
+});
+
+// ============================================
+// Complex Test Cases
+// ============================================
+console.log('\n--- Complex Test Cases ---\n');
+
+test('Python - complex nested structures', () => {
+    const userFiles = [{ name: 'solution.py', content: 'def transform(data): return data' }];
+    const testCases = [
+        {
+            call: 'transform({"items": [1, 2, 3], "meta": {"count": 3}})',
+            expected: { items: [1, 2, 3], meta: { count: 3 } }
+        }
+    ];
+
+    const result = generateTestRunner('python', userFiles, testCases);
+    const stdinData = JSON.parse(result.stdin);
+
+    assertEqual(stdinData[0].expected, { items: [1, 2, 3], meta: { count: 3 } });
+});
+
+test('Python - handles the user example with tuples and list comprehensions', () => {
+    const userFiles = [{ name: 'solution.py', content: 'def detect_card_token_cycles(events): return []' }];
+    const testCases = [
+        {
+            call: 'detect_card_token_cycles([(0, "card", "a"), (500, "card", "b"), (1000, "card", "a")])',
+            expected: [["card", 1000]]
+        },
+        {
+            call: '(lambda r: (len(r), sum(t for _, t in r) % 1000000007))(detect_card_token_cycles([(i, f"card_{i % 100}", f"tok_{(i // 3) % 2}") for i in range(100000)]))',
+            expected: [100, 31550]
+        }
+    ];
+
+    const result = generateTestRunner('python', userFiles, testCases);
+    const stdinData = JSON.parse(result.stdin);
+
+    // Both calls are passed through as-is
+    assertContains(stdinData[0].call, 'detect_card_token_cycles');
+    assertContains(stdinData[1].call, 'lambda r:');
+    assertContains(stdinData[1].call, 'for i in range(100000)');
 });
 
 // ============================================
 // Summary
 // ============================================
-console.log('\n' + '='.repeat(60));
+console.log('\n============================================================');
 console.log(`SUMMARY: ${passed} passed, ${failed} failed`);
-console.log('='.repeat(60));
+console.log('============================================================');
 
-process.exit(failed === 0 ? 0 : 1);
+if (failed > 0) {
+    process.exit(1);
+}

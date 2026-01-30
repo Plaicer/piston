@@ -9,7 +9,6 @@ const package = require('../package');
 const globals = require('../globals');
 const config = require('../config');
 const logger = require('logplease').create('api/v2');
-const callParser = require('../call-parser');
 const { generateTestRunner } = require('../generators');
 
 function get_job(body) {
@@ -269,6 +268,8 @@ router.post('/execute', async (req, res) => {
 
 /**
  * Validate test cases for the testCompile endpoint
+ * Note: call expressions are passed directly to the language runtime (pass-through mode)
+ * This supports language-specific features like Python lambdas, list comprehensions, etc.
  */
 function validate_test_cases(test_cases) {
     if (!test_cases || !Array.isArray(test_cases)) {
@@ -298,14 +299,8 @@ function validate_test_cases(test_cases) {
             throw { message: `test_cases[${i}].expected is required` };
         }
 
-        // Validate call expression is parseable
-        try {
-            callParser.parseCallExpression(tc.call);
-        } catch (e) {
-            throw {
-                message: `test_cases[${i}].call is invalid: ${e.message}`,
-            };
-        }
+        // No parsing here - call expressions are passed directly to the language runtime
+        // This allows language-specific syntax like Python lambdas, f-strings, etc.
     }
 
     return test_cases;
@@ -348,11 +343,11 @@ router.post('/testCompile', async (req, res) => {
         testCases = validate_test_cases(req.body.test_cases);
 
         // Generate test runner files for the language
+        // Pass-through mode: call expressions are passed directly to the language runtime
         runnerResult = generateTestRunner(
             req.body.language,
             req.body.files,
-            testCases,
-            callParser
+            testCases
         );
 
         // Create job with runner files

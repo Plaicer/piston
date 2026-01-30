@@ -2,43 +2,13 @@ const BaseGenerator = require('./base');
 
 /**
  * C# test runner generator
+ *
+ * PASS-THROUGH MODE: Call expressions are embedded directly in generated C# code.
+ * The call syntax must be valid C# (e.g., "Solution.Add(1, 2)")
  */
 class CSharpGenerator extends BaseGenerator {
     constructor() {
         super('csharp');
-    }
-
-    boolLiteral(value) {
-        return value ? 'true' : 'false';
-    }
-
-    nullLiteral() {
-        return 'null';
-    }
-
-    numberLiteral(value) {
-        if (Number.isNaN(value)) return 'double.NaN';
-        if (!Number.isFinite(value)) {
-            return value > 0 ? 'double.PositiveInfinity' : 'double.NegativeInfinity';
-        }
-        if (Number.isInteger(value)) {
-            if (value > 2147483647 || value < -2147483648) {
-                return value + 'L';
-            }
-            return String(value);
-        }
-        return value + 'd';
-    }
-
-    arrayLiteral(arr) {
-        const elements = arr.map(v => this.valueToCode(v)).join(', ');
-        return 'new object[] {' + elements + '}';
-    }
-
-    objectLiteral(obj) {
-        const pairs = Object.entries(obj)
-            .map(([k, v]) => `{"${this.escapeString(k)}", ${this.valueToCode(v)}}`);
-        return 'new Dictionary<string, object> {' + pairs.join(', ') + '}';
     }
 
     escapeCSharp(str) {
@@ -54,14 +24,15 @@ class CSharpGenerator extends BaseGenerator {
         const mainFile = userFiles[0];
         const className = mainFile.name.replace(/\.cs$/, '');
 
-        // Generate test method calls
+        // Generate test method calls - call expressions are embedded directly
         const testCalls = testCases.map((tc, i) => {
-            const nativeCall = `${className}.${this.callToNative(tc.parsed)}`;
             const expectedJson = this.escapeCSharp(JSON.stringify(tc.expected));
+            // The call is used directly as C# code
+            const callCode = tc.call;
             return `
             try
             {
-                var actual = ${nativeCall};
+                var actual = ${callCode};
                 var expected = JsonConvert.DeserializeObject<object>("${expectedJson}");
                 bool passed = DeepEquals(actual, expected);
                 results.Add(new TestResult { Index = ${i}, Actual = actual, Passed = passed, Error = null });

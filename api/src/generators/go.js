@@ -2,40 +2,13 @@ const BaseGenerator = require('./base');
 
 /**
  * Go test runner generator
+ *
+ * PASS-THROUGH MODE: Call expressions are embedded directly in generated Go code.
+ * The call syntax must be valid Go (e.g., "Add(1, 2)")
  */
 class GoGenerator extends BaseGenerator {
     constructor() {
         super('go');
-    }
-
-    boolLiteral(value) {
-        return value ? 'true' : 'false';
-    }
-
-    nullLiteral() {
-        return 'nil';
-    }
-
-    numberLiteral(value) {
-        if (Number.isNaN(value)) return 'math.NaN()';
-        if (!Number.isFinite(value)) {
-            return value > 0 ? 'math.Inf(1)' : 'math.Inf(-1)';
-        }
-        if (Number.isInteger(value)) {
-            return String(value);
-        }
-        return value.toString();
-    }
-
-    arrayLiteral(arr) {
-        const elements = arr.map(v => this.valueToCode(v)).join(', ');
-        return '[]interface{}{' + elements + '}';
-    }
-
-    objectLiteral(obj) {
-        const pairs = Object.entries(obj)
-            .map(([k, v]) => `"${this.escapeString(k)}": ${this.valueToCode(v)}`);
-        return 'map[string]interface{}{' + pairs.join(', ') + '}';
     }
 
     escapeGo(str) {
@@ -50,11 +23,11 @@ class GoGenerator extends BaseGenerator {
     generateRunner(userFiles, testCases) {
         const mainFile = userFiles[0];
 
-        // For Go, we need to generate inline test calls
-        // This is a simplified version - full Go support requires more complex code generation
+        // Generate inline test calls - call expressions are embedded directly
         const testCalls = testCases.map((tc, i) => {
-            const nativeCall = this.callToNative(tc.parsed);
             const expectedJson = this.escapeGo(JSON.stringify(tc.expected));
+            // The call is used directly as Go code
+            const callCode = tc.call;
             return `
 	{
 		func() {
@@ -68,7 +41,7 @@ class GoGenerator extends BaseGenerator {
 					})
 				}
 			}()
-			actual := ${nativeCall}
+			actual := ${callCode}
 			var expected interface{}
 			json.Unmarshal([]byte(\`${expectedJson}\`), &expected)
 			passed := deepEquals(actual, expected)

@@ -2,67 +2,23 @@ const BaseGenerator = require('./base');
 
 /**
  * Python test runner generator
+ *
+ * PASS-THROUGH MODE: Call expressions are passed directly to Python's eval()
+ * This supports all Python syntax including lambdas, list comprehensions, f-strings, etc.
  */
 class PythonGenerator extends BaseGenerator {
     constructor() {
         super('python');
-        this.nestingLevel = 0;
-    }
-
-    boolLiteral(value) {
-        return value ? 'True' : 'False';
-    }
-
-    nullLiteral() {
-        return 'None';
-    }
-
-    undefinedLiteral() {
-        return 'None';
-    }
-
-    numberLiteral(value) {
-        if (Number.isNaN(value)) return 'float("nan")';
-        if (!Number.isFinite(value)) return value > 0 ? 'float("inf")' : 'float("-inf")';
-        return String(value);
-    }
-
-    objectLiteral(obj) {
-        const pairs = Object.entries(obj)
-            .map(([k, v]) => `${this.stringLiteral(k)}: ${this.valueToCode(v)}`);
-        return '{' + pairs.join(', ') + '}';
-    }
-
-    // Override arrayLiteral to output tuples for nested arrays (common Python pattern)
-    // e.g., [(1, "a"), (2, "b")] - outer is list, inner are tuples
-    arrayLiteral(arr) {
-        this.nestingLevel++;
-        const elements = arr.map(v => this.valueToCode(v)).join(', ');
-        this.nestingLevel--;
-
-        // Top-level arrays stay as lists, nested arrays become tuples
-        if (this.nestingLevel > 0) {
-            // Nested array -> tuple
-            // Handle single-element tuples: (x,) instead of (x)
-            if (arr.length === 1) {
-                return '(' + elements + ',)';
-            }
-            return '(' + elements + ')';
-        }
-        // Top-level -> list
-        return '[' + elements + ']';
     }
 
     generateRunner(userFiles, testCases) {
         const mainFile = userFiles[0];
         const moduleName = mainFile.name.replace(/\.py$/, '');
 
-        // Convert each test case call to Python syntax
-        const nativeTestCases = testCases.map(tc => ({
-            ...tc,
-            call_native: this.callToNative(tc.parsed),
-            // Remove parsed to avoid circular JSON
-            parsed: undefined
+        // Pass test cases with raw call strings - Python will eval them directly
+        const testData = testCases.map(tc => ({
+            call: tc.call,
+            expected: tc.expected
         }));
 
         const runnerCode = `
@@ -141,17 +97,37 @@ def serialize(value):
     # For other types, try to convert to string
     return str(value)
 
+def convert_expected(val):
+    """Convert JSON expected value to Python equivalent for comparison"""
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return val
+    if isinstance(val, str):
+        return val
+    if isinstance(val, list):
+        return [convert_expected(v) for v in val]
+    if isinstance(val, dict):
+        return {k: convert_expected(v) for k, v in val.items()}
+    return val
+
 # Read test cases from stdin
 test_cases = json.loads(sys.stdin.read())
 results = []
 
 for i, tc in enumerate(test_cases):
     try:
-        # Execute the function call
-        actual = eval(tc['call_native'])
+        # Execute the function call directly using Python eval
+        # This supports all Python syntax: lambdas, list comprehensions, f-strings, etc.
+        actual = eval(tc['call'])
+
+        # Convert expected value from JSON to Python
+        expected = convert_expected(tc['expected'])
 
         # Compare with expected
-        passed = deep_equals(actual, tc['expected'])
+        passed = deep_equals(actual, expected)
 
         results.append({
             'index': i,
@@ -176,7 +152,7 @@ print(json.dumps(results))
                 { name: '__test_runner__.py', content: runnerCode.trim() }
             ],
             entryPoint: '__test_runner__.py',
-            stdin: JSON.stringify(nativeTestCases)
+            stdin: JSON.stringify(testData)
         };
     }
 }

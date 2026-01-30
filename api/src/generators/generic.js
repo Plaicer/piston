@@ -4,9 +4,8 @@ const BaseGenerator = require('./base');
  * Generic/Fallback test runner generator
  * Used for languages without a specific generator
  *
- * This generator uses stdin/stdout based testing where:
- * - Test cases are passed as JSON via stdin
- * - The user's code is expected to read stdin and write results to stdout
+ * PASS-THROUGH MODE: Test cases are passed via stdin with raw call expressions.
+ * The call expressions are in the target language's native syntax.
  */
 class GenericGenerator extends BaseGenerator {
     constructor(language) {
@@ -15,7 +14,7 @@ class GenericGenerator extends BaseGenerator {
 
     /**
      * For unsupported languages, we provide a fallback mode that:
-     * 1. Passes test case inputs via stdin
+     * 1. Passes test case inputs via stdin (raw call expressions)
      * 2. Expects the user to handle output
      * 3. Compares stdout with expected output
      */
@@ -26,13 +25,10 @@ class GenericGenerator extends BaseGenerator {
             `Test execution may be limited.`
         );
 
-        // For generic mode, we prepare test cases for stdin-based testing
-        // The user's code should read from stdin and print results
+        // For generic mode, we pass test cases with raw call strings
         const stdinTestCases = testCases.map(tc => ({
             call: tc.call,
-            call_native: this.callToNative(tc.parsed),
-            expected: tc.expected,
-            parsed: undefined
+            expected: tc.expected
         }));
 
         return {

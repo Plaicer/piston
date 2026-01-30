@@ -2,59 +2,36 @@ const BaseGenerator = require('./base');
 
 /**
  * C++ test runner generator
- * Note: C++ has limited reflection, so we use a simpler approach
+ *
+ * PASS-THROUGH MODE: Call expressions are embedded directly in generated C++ code.
+ * The call syntax must be valid C++ (e.g., "add(1, 2)")
  */
 class CppGenerator extends BaseGenerator {
     constructor() {
         super('cpp');
     }
 
-    boolLiteral(value) {
-        return value ? 'true' : 'false';
-    }
-
-    nullLiteral() {
-        return 'nullptr';
-    }
-
-    numberLiteral(value) {
-        if (Number.isNaN(value)) return 'std::numeric_limits<double>::quiet_NaN()';
-        if (!Number.isFinite(value)) {
-            return value > 0
-                ? 'std::numeric_limits<double>::infinity()'
-                : '-std::numeric_limits<double>::infinity()';
-        }
-        if (Number.isInteger(value)) {
-            if (value > 2147483647 || value < -2147483648) {
-                return value + 'LL';
-            }
-            return String(value);
-        }
-        return value.toString();
-    }
-
-    arrayLiteral(arr) {
-        const elements = arr.map(v => this.valueToCode(v)).join(', ');
-        return '{' + elements + '}';
-    }
-
-    objectLiteral(obj) {
-        const pairs = Object.entries(obj)
-            .map(([k, v]) => `{"${this.escapeString(k)}", ${this.valueToCode(v)}}`);
-        return '{' + pairs.join(', ') + '}';
+    escapeCpp(str) {
+        return str
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
     }
 
     generateRunner(userFiles, testCases) {
         const mainFile = userFiles[0];
 
-        // For C++, we generate test calls inline since there's no eval
+        // Generate test calls - call expressions are embedded directly
         const testCalls = testCases.map((tc, i) => {
-            const nativeCall = this.callToNative(tc.parsed);
-            const expectedJson = JSON.stringify(tc.expected).replace(/"/g, '\\"');
+            const expectedJson = this.escapeCpp(JSON.stringify(tc.expected));
+            // The call is used directly as C++ code
+            const callCode = tc.call;
             return `
     {
         try {
-            auto actual = ${nativeCall};
+            auto actual = ${callCode};
             auto expected = json::parse("${expectedJson}");
             bool passed = compareResults(actual, expected);
             results.push_back({{"index", ${i}}, {"actual", actual}, {"passed", passed}, {"error", nullptr}});

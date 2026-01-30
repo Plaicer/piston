@@ -2,38 +2,13 @@ const BaseGenerator = require('./base');
 
 /**
  * Java test runner generator
- * Note: Java requires more complex code generation due to static typing
+ *
+ * PASS-THROUGH MODE: Call expressions are embedded directly in generated Java code.
+ * The call syntax must be valid Java (e.g., "Solution.add(1, 2)")
  */
 class JavaGenerator extends BaseGenerator {
     constructor() {
         super('java');
-    }
-
-    numberLiteral(value) {
-        if (Number.isNaN(value)) return 'Double.NaN';
-        if (!Number.isFinite(value)) return value > 0 ? 'Double.POSITIVE_INFINITY' : 'Double.NEGATIVE_INFINITY';
-        // Add type suffix for clarity
-        if (Number.isInteger(value)) {
-            if (value > 2147483647 || value < -2147483648) {
-                return value + 'L';
-            }
-            return String(value);
-        }
-        return value + 'd';
-    }
-
-    arrayLiteral(arr) {
-        const elements = arr.map(v => this.valueToCode(v)).join(', ');
-        return 'Arrays.asList(' + elements + ')';
-    }
-
-    objectLiteral(obj) {
-        const pairs = Object.entries(obj)
-            .map(([k, v]) => `"${this.escapeString(k)}", ${this.valueToCode(v)}`);
-        if (pairs.length === 0) {
-            return 'new HashMap<>()';
-        }
-        return 'Map.of(' + pairs.join(', ') + ')';
     }
 
     escapeJava(str) {
@@ -49,13 +24,14 @@ class JavaGenerator extends BaseGenerator {
         const mainFile = userFiles[0];
         const className = mainFile.name.replace(/\.java$/, '');
 
-        // Generate test method calls
+        // Generate test method calls - call expressions are embedded directly
         const testCalls = testCases.map((tc, i) => {
-            const nativeCall = `${className}.${this.callToNative(tc.parsed)}`;
             const expectedJson = this.escapeJava(JSON.stringify(tc.expected));
+            // The call is used directly as Java code
+            const callCode = tc.call;
             return `
             try {
-                Object actual = ${nativeCall};
+                Object actual = ${callCode};
                 Object expected = gson.fromJson("${expectedJson}", Object.class);
                 boolean passed = deepEquals(actual, expected);
                 results.add(new TestResult(${i}, actual, passed, null));

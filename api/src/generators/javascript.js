@@ -2,31 +2,22 @@ const BaseGenerator = require('./base');
 
 /**
  * JavaScript/Node.js test runner generator
+ *
+ * PASS-THROUGH MODE: Call expressions are passed directly to JavaScript's eval()
+ * This supports all JavaScript syntax including arrow functions, template literals, etc.
  */
 class JavaScriptGenerator extends BaseGenerator {
     constructor() {
         super('javascript');
     }
 
-    objectLiteral(obj) {
-        // JavaScript allows unquoted keys (identifiers)
-        const pairs = Object.entries(obj)
-            .map(([k, v]) => {
-                // Use unquoted key if it's a valid identifier
-                const key = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(k) ? k : this.stringLiteral(k);
-                return `${key}: ${this.valueToCode(v)}`;
-            });
-        return '{' + pairs.join(', ') + '}';
-    }
-
     generateRunner(userFiles, testCases) {
         const mainFile = userFiles[0];
 
-        // Convert each test case call to JavaScript syntax
-        const nativeTestCases = testCases.map(tc => ({
-            ...tc,
-            call_native: this.callToNative(tc.parsed),
-            parsed: undefined
+        // Pass test cases with raw call strings - JavaScript will eval them directly
+        const testData = testCases.map(tc => ({
+            call: tc.call,
+            expected: tc.expected
         }));
 
         const runnerCode = `
@@ -97,8 +88,9 @@ const results = [];
 for (let i = 0; i < testCases.length; i++) {
     const tc = testCases[i];
     try {
-        // Execute the function call
-        const actual = eval(tc.call_native);
+        // Execute the function call directly using JavaScript eval
+        // This supports all JavaScript syntax
+        const actual = eval(tc.call);
 
         // Compare with expected
         const passed = deepEquals(actual, tc.expected);
@@ -127,7 +119,7 @@ console.log(JSON.stringify(results));
                 { name: '__test_runner__.js', content: runnerCode.trim() }
             ],
             entryPoint: '__test_runner__.js',
-            stdin: JSON.stringify(nativeTestCases)
+            stdin: JSON.stringify(testData)
         };
     }
 }

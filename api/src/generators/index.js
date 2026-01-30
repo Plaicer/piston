@@ -73,27 +73,20 @@ function getGenerator(language) {
 /**
  * Generate test runner files for the specified language
  *
+ * PASS-THROUGH MODE: Call expressions are passed directly to the language runtime.
+ * This allows language-specific syntax like Python lambdas, list comprehensions, f-strings, etc.
+ *
  * @param {string} language - The programming language
  * @param {Array} userFiles - Array of {name, content} objects
- * @param {Array} testCases - Array of test cases
- * @param {Object} callParser - The call expression parser
+ * @param {Array} testCases - Array of test cases with {call: string, expected: any}
  * @returns {Object} - { files, entryPoint, stdin, mode? }
  */
-function generateTestRunner(language, userFiles, testCases, callParser) {
-    // Parse all call expressions
-    const parsedTestCases = testCases.map((tc, index) => {
-        try {
-            return {
-                ...tc,
-                parsed: callParser.parseCallExpression(tc.call)
-            };
-        } catch (error) {
-            throw new Error(`Failed to parse test_cases[${index}].call: ${error.message}`);
-        }
-    });
-
+function generateTestRunner(language, userFiles, testCases) {
+    // Pass-through mode: test cases go directly to the language runtime
+    // Each test case has {call: string, expected: any}
+    // The call string is evaluated natively by the target language
     const generator = getGenerator(language);
-    return generator.generateRunner(userFiles, parsedTestCases);
+    return generator.generateRunner(userFiles, testCases);
 }
 
 /**
