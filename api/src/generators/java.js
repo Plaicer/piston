@@ -8,6 +8,8 @@ const BaseGenerator = require('./base');
  *
  * If a call doesn't have a class prefix, the generator will try to find the
  * user's class and prepend it automatically.
+ *
+ * Note: Does NOT use external libraries (no Gson) - pure Java only.
  */
 class JavaGenerator extends BaseGenerator {
     constructor() {
@@ -57,11 +59,11 @@ class JavaGenerator extends BaseGenerator {
             return `
             try {
                 Object actual = ${callCode};
-                Object expected = gson.fromJson("${expectedJson}", Object.class);
+                Object expected = parseJson("${expectedJson}");
                 boolean passed = deepEquals(actual, expected);
-                results.add(new TestResult(${i}, actual, passed, null));
+                results.add(formatResult(${i}, serialize(actual), passed, null));
             } catch (Exception e) {
-                results.add(new TestResult(${i}, null, false, e.getClass().getSimpleName() + ": " + e.getMessage()));
+                results.add(formatResult(${i}, "null", false, e.getClass().getSimpleName() + ": " + e.getMessage()));
             }`;
         }).join('\n');
 
@@ -71,90 +73,12 @@ class JavaGenerator extends BaseGenerator {
 
         const runnerCode = `
 import java.util.*;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
+import java.lang.reflect.Array;
 
 // User code
 ${userCode}
 
 public class __TestRunner__ {
-    static Gson gson = new GsonBuilder().serializeNulls().create();
-
-    static class TestResult {
-        int index;
-        Object actual;
-        boolean passed;
-        String error;
-
-        TestResult(int i, Object a, boolean p, String e) {
-            index = i;
-            actual = a;
-            passed = p;
-            error = e;
-        }
-    }
-
-    static boolean deepEquals(Object a, Object b) {
-        if (a == null && b == null) return true;
-        if (a == null || b == null) return false;
-
-        // Handle numeric comparison with tolerance for int/double
-        if (a instanceof Number && b instanceof Number) {
-            double da = ((Number) a).doubleValue();
-            double db = ((Number) b).doubleValue();
-            if (Double.isNaN(da) && Double.isNaN(db)) return true;
-            return da == db;
-        }
-
-        // Handle lists
-        if (a instanceof List && b instanceof List) {
-            List<?> la = (List<?>) a;
-            List<?> lb = (List<?>) b;
-            if (la.size() != lb.size()) return false;
-            for (int i = 0; i < la.size(); i++) {
-                if (!deepEquals(la.get(i), lb.get(i))) return false;
-            }
-            return true;
-        }
-
-        // Handle arrays (convert to list comparison)
-        if (a.getClass().isArray()) {
-            int len = java.lang.reflect.Array.getLength(a);
-            if (b instanceof List) {
-                List<?> lb = (List<?>) b;
-                if (len != lb.size()) return false;
-                for (int i = 0; i < len; i++) {
-                    if (!deepEquals(java.lang.reflect.Array.get(a, i), lb.get(i))) return false;
-                }
-                return true;
-            } else if (b.getClass().isArray()) {
-                int lenB = java.lang.reflect.Array.getLength(b);
-                if (len != lenB) return false;
-                for (int i = 0; i < len; i++) {
-                    if (!deepEquals(java.lang.reflect.Array.get(a, i), java.lang.reflect.Array.get(b, i))) return false;
-                }
-                return true;
-            }
-        }
-
-        // Handle maps
-        if (a instanceof Map && b instanceof Map) {
-            Map<?, ?> ma = (Map<?, ?>) a;
-            Map<?, ?> mb = (Map<?, ?>) b;
-            if (ma.size() != mb.size()) return false;
-            for (Object key : ma.keySet()) {
-                String keyStr = String.valueOf(key);
-                Object va = ma.get(key);
-                // Try both the key and string version
-                Object vb = mb.containsKey(key) ? mb.get(key) : mb.get(keyStr);
-                if (vb == null && !mb.containsKey(key) && !mb.containsKey(keyStr)) return false;
-                if (!deepEquals(va, vb)) return false;
-            }
-            return true;
-        }
-
-        return a.equals(b);
-    }
 
     static String serialize(Object obj) {
         if (obj == null) return "null";
@@ -163,11 +87,16 @@ public class __TestRunner__ {
             double d = ((Number) obj).doubleValue();
             if (Double.isNaN(d)) return "\\"NaN\\"";
             if (Double.isInfinite(d)) return d > 0 ? "\\"Infinity\\"" : "\\"-Infinity\\"";
-            if (obj instanceof Integer || obj instanceof Long) return obj.toString();
+            // Check if it's a whole number
+            if (obj instanceof Double || obj instanceof Float) {
+                if (d == Math.floor(d) && !Double.isInfinite(d)) {
+                    return String.valueOf((long) d);
+                }
+            }
             return obj.toString();
         }
         if (obj instanceof String) {
-            return "\\"" + ((String) obj).replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"") + "\\"";
+            return "\\"" + ((String) obj).replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"").replace("\\n", "\\\\n").replace("\\r", "\\\\r").replace("\\t", "\\\\t") + "\\"";
         }
         if (obj instanceof List) {
             List<?> list = (List<?>) obj;
@@ -180,11 +109,11 @@ public class __TestRunner__ {
             return sb.toString();
         }
         if (obj.getClass().isArray()) {
-            int len = java.lang.reflect.Array.getLength(obj);
+            int len = Array.getLength(obj);
             StringBuilder sb = new StringBuilder("[");
             for (int i = 0; i < len; i++) {
                 if (i > 0) sb.append(",");
-                sb.append(serialize(java.lang.reflect.Array.get(obj, i)));
+                sb.append(serialize(Array.get(obj, i)));
             }
             sb.append("]");
             return sb.toString();
@@ -205,24 +134,183 @@ public class __TestRunner__ {
         return "\\"" + obj.toString() + "\\"";
     }
 
+    static Object parseJson(String json) {
+        json = json.trim();
+        if (json.equals("null")) return null;
+        if (json.equals("true")) return true;
+        if (json.equals("false")) return false;
+        if (json.startsWith("\\"") && json.endsWith("\\"")) {
+            return json.substring(1, json.length() - 1)
+                .replace("\\\\n", "\\n")
+                .replace("\\\\r", "\\r")
+                .replace("\\\\t", "\\t")
+                .replace("\\\\\\"", "\\"")
+                .replace("\\\\\\\\", "\\\\");
+        }
+        if (json.startsWith("[") && json.endsWith("]")) {
+            List<Object> list = new ArrayList<>();
+            String inner = json.substring(1, json.length() - 1).trim();
+            if (inner.isEmpty()) return list;
+            for (String item : splitJson(inner)) {
+                list.add(parseJson(item));
+            }
+            return list;
+        }
+        if (json.startsWith("{") && json.endsWith("}")) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            String inner = json.substring(1, json.length() - 1).trim();
+            if (inner.isEmpty()) return map;
+            for (String pair : splitJson(inner)) {
+                int colonIdx = findColon(pair);
+                if (colonIdx > 0) {
+                    String key = pair.substring(0, colonIdx).trim();
+                    if (key.startsWith("\\"") && key.endsWith("\\"")) {
+                        key = key.substring(1, key.length() - 1);
+                    }
+                    String val = pair.substring(colonIdx + 1).trim();
+                    map.put(key, parseJson(val));
+                }
+            }
+            return map;
+        }
+        // Try parsing as number
+        try {
+            if (json.contains(".") || json.contains("e") || json.contains("E")) {
+                return Double.parseDouble(json);
+            }
+            return Long.parseLong(json);
+        } catch (NumberFormatException e) {
+            return json;
+        }
+    }
+
+    static int findColon(String s) {
+        int depth = 0;
+        boolean inString = false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '"' && (i == 0 || s.charAt(i - 1) != '\\\\')) inString = !inString;
+            if (!inString) {
+                if (c == '[' || c == '{') depth++;
+                else if (c == ']' || c == '}') depth--;
+                else if (c == ':' && depth == 0) return i;
+            }
+        }
+        return -1;
+    }
+
+    static List<String> splitJson(String json) {
+        List<String> result = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        boolean inString = false;
+        for (int i = 0; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (c == '"' && (i == 0 || json.charAt(i - 1) != '\\\\')) inString = !inString;
+            if (!inString) {
+                if (c == '[' || c == '{') depth++;
+                else if (c == ']' || c == '}') depth--;
+                else if (c == ',' && depth == 0) {
+                    result.add(json.substring(start, i).trim());
+                    start = i + 1;
+                }
+            }
+        }
+        if (start < json.length()) {
+            result.add(json.substring(start).trim());
+        }
+        return result;
+    }
+
+    static boolean deepEquals(Object a, Object b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+
+        // Handle numeric comparison
+        if (a instanceof Number && b instanceof Number) {
+            double da = ((Number) a).doubleValue();
+            double db = ((Number) b).doubleValue();
+            if (Double.isNaN(da) && Double.isNaN(db)) return true;
+            return Math.abs(da - db) < 0.0000001;
+        }
+
+        // Handle arrays vs lists
+        if (a.getClass().isArray()) {
+            int len = Array.getLength(a);
+            if (b instanceof List) {
+                List<?> lb = (List<?>) b;
+                if (len != lb.size()) return false;
+                for (int i = 0; i < len; i++) {
+                    if (!deepEquals(Array.get(a, i), lb.get(i))) return false;
+                }
+                return true;
+            } else if (b.getClass().isArray()) {
+                int lenB = Array.getLength(b);
+                if (len != lenB) return false;
+                for (int i = 0; i < len; i++) {
+                    if (!deepEquals(Array.get(a, i), Array.get(b, i))) return false;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        // Handle lists
+        if (a instanceof List && b instanceof List) {
+            List<?> la = (List<?>) a;
+            List<?> lb = (List<?>) b;
+            if (la.size() != lb.size()) return false;
+            for (int i = 0; i < la.size(); i++) {
+                if (!deepEquals(la.get(i), lb.get(i))) return false;
+            }
+            return true;
+        }
+
+        // Handle maps
+        if (a instanceof Map && b instanceof Map) {
+            Map<?, ?> ma = (Map<?, ?>) a;
+            Map<?, ?> mb = (Map<?, ?>) b;
+            if (ma.size() != mb.size()) return false;
+            for (Object key : ma.keySet()) {
+                String keyStr = String.valueOf(key);
+                Object va = ma.get(key);
+                Object vb = mb.containsKey(key) ? mb.get(key) : mb.get(keyStr);
+                if (vb == null && !mb.containsKey(key) && !mb.containsKey(keyStr)) return false;
+                if (!deepEquals(va, vb)) return false;
+            }
+            return true;
+        }
+
+        // String comparison
+        if (a instanceof String || b instanceof String) {
+            return String.valueOf(a).equals(String.valueOf(b));
+        }
+
+        return a.equals(b);
+    }
+
+    static String formatResult(int index, String actual, boolean passed, String error) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{");
+        sb.append("\\"index\\":").append(index);
+        sb.append(",\\"actual\\":").append(actual);
+        sb.append(",\\"passed\\":").append(passed);
+        sb.append(",\\"error\\":");
+        if (error == null) {
+            sb.append("null");
+        } else {
+            sb.append("\\"").append(error.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"")).append("\\"");
+        }
+        sb.append("}");
+        return sb.toString();
+    }
+
     public static void main(String[] args) {
-        List<TestResult> results = new ArrayList<>();
+        List<String> results = new ArrayList<>();
+
         ${testCalls}
 
-        // Output results as JSON
-        StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < results.size(); i++) {
-            if (i > 0) sb.append(",");
-            TestResult r = results.get(i);
-            sb.append("{");
-            sb.append("\\"index\\":").append(r.index);
-            sb.append(",\\"actual\\":").append(serialize(r.actual));
-            sb.append(",\\"passed\\":").append(r.passed);
-            sb.append(",\\"error\\":").append(r.error == null ? "null" : "\\"" + r.error.replace("\\\\", "\\\\\\\\").replace("\\"", "\\\\\\"") + "\\"");
-            sb.append("}");
-        }
-        sb.append("]");
-        System.out.println(sb.toString());
+        System.out.println("[" + String.join(",", results) + "]");
     }
 }
 `;
