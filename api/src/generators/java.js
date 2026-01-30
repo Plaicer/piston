@@ -71,6 +71,10 @@ class JavaGenerator extends BaseGenerator {
         let userCode = mainFile.content;
         userCode = userCode.replace(/^\s*package\s+[\w.]+\s*;\s*/m, '');
 
+        // Remove 'public' modifier from class declarations so only __TestRunner__ is public
+        // This is required because Java only allows one public class per file
+        userCode = userCode.replace(/public\s+(class|interface|enum)\s+/g, '$1 ');
+
         const runnerCode = `
 import java.util.*;
 import java.lang.reflect.Array;
