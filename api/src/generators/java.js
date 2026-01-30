@@ -71,13 +71,30 @@ class JavaGenerator extends BaseGenerator {
         let userCode = mainFile.content;
         userCode = userCode.replace(/^\s*package\s+[\w.]+\s*;\s*/m, '');
 
+        // Extract import statements from user code to put at the top
+        const importPattern = /^\s*import\s+[\w.*]+\s*;\s*$/gm;
+        const userImports = [];
+        let importMatch;
+        while ((importMatch = importPattern.exec(userCode)) !== null) {
+            userImports.push(importMatch[0].trim());
+        }
+        // Remove imports from user code (they'll be at the top)
+        userCode = userCode.replace(importPattern, '');
+
         // Remove 'public' modifier from class declarations so only __TestRunner__ is public
         // This is required because Java only allows one public class per file
         userCode = userCode.replace(/public\s+(class|interface|enum)\s+/g, '$1 ');
 
+        // Combine our imports with user imports (deduplicated)
+        const allImports = new Set([
+            'import java.util.*;',
+            'import java.lang.reflect.Array;',
+            ...userImports
+        ]);
+        const importsCode = Array.from(allImports).join('\n');
+
         const runnerCode = `
-import java.util.*;
-import java.lang.reflect.Array;
+${importsCode}
 
 public class __TestRunner__ {
 
@@ -323,7 +340,7 @@ ${userCode}
             files: [
                 { name: '__TestRunner__.java', content: runnerCode.trim() }
             ],
-            entryPoint: '__TestRunner__.java',
+            entryPoint: '__TestRunner__',
             stdin: ''
         };
     }
