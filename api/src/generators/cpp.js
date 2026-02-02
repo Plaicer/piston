@@ -148,10 +148,12 @@ class CppGenerator extends BaseGenerator {
             auto expected = json::parse("${expectedJson}");
             bool passed = compareResults(actual, expected);
             result["actual"] = serializeValue(actual);
+            result["expected_serialized"] = expected;  // Include what we compared against
             result["passed"] = passed;
             result["error"] = nullptr;
         } catch (const std::exception& e) {
             result["actual"] = nullptr;
+            result["expected_serialized"] = nullptr;
             result["passed"] = false;
             result["error"] = e.what();
         }
@@ -362,17 +364,26 @@ bool compareResults(const T& actual, const json& expected) {
     }
 }
 
-// Specializations for common types
+// ============================================================================
+// STRICT TYPE SPECIALIZATIONS
+// - int only matches integer expected values
+// - double/float only matches float expected values
+// - NO tolerance (except for NaN/Infinity special cases)
+// ============================================================================
+
 template<>
 bool compareResults(const int& actual, const json& expected) {
+    // STRICT: int only matches integer expected values
     if (expected.is_number_integer()) {
         return actual == expected.get<int>();
     }
+    // FAIL if expected is float (e.g., 1.0)
     return false;
 }
 
 template<>
 bool compareResults(const long long& actual, const json& expected) {
+    // STRICT: long long only matches integer expected values
     if (expected.is_number_integer()) {
         return actual == expected.get<long long>();
     }
@@ -381,23 +392,83 @@ bool compareResults(const long long& actual, const json& expected) {
 
 template<>
 bool compareResults(const double& actual, const json& expected) {
-    if (expected.is_number()) {
-        double exp = expected.get<double>();
-        if (std::isnan(actual) && std::isnan(exp)) return true;
-        if (std::isinf(actual) && std::isinf(exp)) return (actual > 0) == (exp > 0);
-        return std::abs(actual - exp) < 1e-9;
+    // STRICT: double only matches float expected values
+    // Exception: NaN and Infinity have special handling
+
+    // Handle NaN - both must be NaN
+    if (std::isnan(actual)) {
+        if (expected.is_number()) {
+            return std::isnan(expected.get<double>());
+        }
+        // Also handle string "NaN" from JSON
+        if (expected.is_string() && expected.get<string>() == "NaN") {
+            return true;
+        }
+        return false;
     }
+
+    // Handle Infinity - both must be same infinity
+    if (std::isinf(actual)) {
+        if (expected.is_number()) {
+            double exp = expected.get<double>();
+            return std::isinf(exp) && (actual > 0) == (exp > 0);
+        }
+        // Handle string "Infinity" or "-Infinity"
+        if (expected.is_string()) {
+            string s = expected.get<string>();
+            if (actual > 0 && s == "Infinity") return true;
+            if (actual < 0 && s == "-Infinity") return true;
+        }
+        return false;
+    }
+
+    // STRICT: For normal numbers, float must match float
+    if (expected.is_number_float()) {
+        // NO tolerance - exact comparison
+        // This catches 0.1 + 0.2 != 0.3 cases
+        return actual == expected.get<double>();
+    }
+
+    // FAIL if expected is integer (e.g., 1 vs 1.0)
     return false;
 }
 
 template<>
 bool compareResults(const float& actual, const json& expected) {
-    if (expected.is_number()) {
-        float exp = expected.get<float>();
-        if (std::isnan(actual) && std::isnan(exp)) return true;
-        if (std::isinf(actual) && std::isinf(exp)) return (actual > 0) == (exp > 0);
-        return std::abs(actual - exp) < 1e-6f;
+    // STRICT: float only matches float expected values
+
+    // Handle NaN
+    if (std::isnan(actual)) {
+        if (expected.is_number()) {
+            return std::isnan(expected.get<float>());
+        }
+        if (expected.is_string() && expected.get<string>() == "NaN") {
+            return true;
+        }
+        return false;
     }
+
+    // Handle Infinity
+    if (std::isinf(actual)) {
+        if (expected.is_number()) {
+            float exp = expected.get<float>();
+            return std::isinf(exp) && (actual > 0) == (exp > 0);
+        }
+        if (expected.is_string()) {
+            string s = expected.get<string>();
+            if (actual > 0 && s == "Infinity") return true;
+            if (actual < 0 && s == "-Infinity") return true;
+        }
+        return false;
+    }
+
+    // STRICT: For normal numbers, float must match float
+    if (expected.is_number_float()) {
+        // NO tolerance - exact comparison
+        return actual == expected.get<float>();
+    }
+
+    // FAIL if expected is integer
     return false;
 }
 
